@@ -27,12 +27,14 @@ class GitHubUser(BaseModel):
 
 class Repository(BaseModel):
     id: int
+    github_id: int
     name: str
     full_name: str
     owner: str
     default_branch: str
     clone_url: str
     webhook_url: Optional[str] = None
+    is_active: bool = True
 
 class Commit(BaseModel):
     sha: str

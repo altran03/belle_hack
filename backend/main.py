@@ -196,7 +196,19 @@ async def get_repositories(user_id: int, db: Session = Depends(get_db)):
             db.add(repo)
             db.commit()
         
-        repositories.append(repo)
+        # Convert to response format
+        repo_response = {
+            "id": repo.id,
+            "github_id": repo.github_id,
+            "name": repo.name,
+            "full_name": repo.full_name,
+            "owner": user.login,  # Use the user's login as owner string
+            "default_branch": repo.default_branch,
+            "clone_url": repo.clone_url,
+            "webhook_url": repo.webhook_url,
+            "is_active": repo.is_active
+        }
+        repositories.append(repo_response)
     
     return repositories
 

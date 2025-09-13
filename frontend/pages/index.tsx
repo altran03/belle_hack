@@ -32,6 +32,11 @@ export default function Dashboard() {
     }
   }
 
+  const handleLogout = () => {
+    localStorage.removeItem('user_id')
+    router.push('/auth/login')
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -54,12 +59,20 @@ export default function Dashboard() {
                 <BugAntIcon className="h-8 w-8 text-blue-600" />
                 <h1 className="ml-2 text-xl font-bold">BugSniper Pro</h1>
               </div>
-              <button
-                onClick={() => router.push('/auth/login')}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg"
-              >
-                Connect GitHub
-              </button>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => router.push('/repositories')}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                >
+                  Connect Repositories
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+                >
+                  Logout
+                </button>
+              </div>
             </div>
           </div>
         </header>
@@ -88,10 +101,10 @@ export default function Dashboard() {
                     Connect your GitHub repositories to start monitoring.
                   </p>
                   <button
-                    onClick={() => router.push('/auth/login')}
+                    onClick={() => router.push('/repositories')}
                     className="bg-blue-600 text-white px-4 py-2 rounded-lg"
                   >
-                    Connect GitHub
+                    Connect Repositories
                   </button>
                 </div>
               ) : (
