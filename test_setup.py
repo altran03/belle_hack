@@ -21,7 +21,7 @@ def check_python_packages():
     """Check if required Python packages are installed"""
     required_packages = [
         'fastapi', 'uvicorn', 'sqlalchemy', 'pydantic', 
-        'httpx', 'gitpython', 'google-generativeai'
+        'httpx', 'git', 'google.generativeai'
     ]
     
     print("\n📦 Checking Python packages...")

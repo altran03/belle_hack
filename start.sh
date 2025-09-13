@@ -45,7 +45,7 @@ echo ""
 
 # Start both services in parallel
 (trap 'kill 0' SIGINT; 
- cd backend && python main.py &
+ cd backend && ../venv/bin/python main.py &
  cd frontend && npm run dev &
  wait
 )
