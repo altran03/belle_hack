@@ -39,6 +39,7 @@ class Repository(Base):
     clone_url = Column(String)
     webhook_url = Column(String, nullable=True)
     webhook_secret = Column(String, nullable=True)
+    webhook_id = Column(Integer, nullable=True)  # GitHub webhook ID
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -27,14 +27,18 @@ class GitHubUser(BaseModel):
 
 class Repository(BaseModel):
     id: int
-    github_id: int
+    github_id: Optional[int] = None
     name: str
     full_name: str
-    owner: str
-    default_branch: str
-    clone_url: str
+    owner_id: int
+    default_branch: Optional[str] = None
+    clone_url: Optional[str] = None
     webhook_url: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    webhook_id: Optional[int] = None
     is_active: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 class Commit(BaseModel):
     sha: str
@@ -108,3 +112,7 @@ class GitHubOAuthResponse(BaseModel):
     access_token: str
     token_type: str
     scope: str
+
+class MonitorRepositoryRequest(BaseModel):
+    owner: str
+    repo: str
