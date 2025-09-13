@@ -76,8 +76,8 @@ class AnalysisPipeline:
             job.status = JobStatus.TESTING
             db.commit()
             
-            # Run pytest analysis
-            pytest_result = await self.pytest_client.run_tests(temp_workspace)
+            # Run pytest analysis (with test generation if no tests found)
+            pytest_result = await self.pytest_client.run_tests(temp_workspace, generate_tests_if_missing=True)
             
             # Update job with pytest results
             job.pytest_passed = pytest_result["passed"]

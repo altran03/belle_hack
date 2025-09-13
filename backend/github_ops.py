@@ -150,9 +150,36 @@ class GitHubOperations:
                 print(f"Failed to create PR: {response.status_code} - {response.text}")
                 return None
     
+    async def list_webhooks(self, owner: str, repo: str) -> List[Dict[str, Any]]:
+        """List existing webhooks for the repository"""
+        url = f"https://api.github.com/repos/{owner}/{repo}/hooks"
+        
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.get(url, headers=self.headers)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Failed to list webhooks: {response.status_code} - {response.text}")
+                return []
+
     async def setup_webhook(self, owner: str, repo: str, webhook_url: str, 
                            webhook_secret: str) -> Optional[Dict[str, Any]]:
         """Set up a webhook for the repository"""
+        # First, check if a webhook with the same URL already exists
+        existing_webhooks = await self.list_webhooks(owner, repo)
+        
+        for webhook in existing_webhooks:
+            if webhook.get("config", {}).get("url") == webhook_url:
+                print(f"Webhook already exists with ID {webhook['id']}")
+                return {
+                    "id": webhook["id"],
+                    "url": webhook_url,
+                    "active": webhook.get("active", True),
+                    "events": webhook.get("events", ["push"])
+                }
+        
+        # If no existing webhook found, create a new one
         url = f"https://api.github.com/repos/{owner}/{repo}/hooks"
         
         data = {
@@ -171,6 +198,22 @@ class GitHubOperations:
             
             if response.status_code == 201:
                 return response.json()
+            elif response.status_code == 422:
+                # Handle the case where webhook already exists but wasn't found in list
+                # This can happen due to timing or permission issues
+                error_data = response.json()
+                if "Hook already exists" in str(error_data):
+                    print(f"Webhook already exists on repository {owner}/{repo}")
+                    # Return a mock webhook object since we can't get the exact ID
+                    return {
+                        "id": "existing",
+                        "url": webhook_url,
+                        "active": True,
+                        "events": ["push"]
+                    }
+                else:
+                    print(f"Failed to create webhook: {response.status_code} - {response.text}")
+                    return None
             else:
                 print(f"Failed to create webhook: {response.status_code} - {response.text}")
                 return None

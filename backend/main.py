@@ -344,6 +344,10 @@ async def add_repository_to_monitoring(
         if not webhook_result:
             raise HTTPException(status_code=500, detail="Failed to set up webhook. Please check your WEBHOOK_BASE_URL and try again.")
         
+        # Handle the case where webhook already exists
+        if webhook_result.get("id") == "existing":
+            print(f"Webhook already exists for {owner}/{repo}, continuing with setup...")
+        
         # Create new repository entry with webhook info
         repository = Repository(
             github_id=repo_info["id"],
@@ -355,17 +359,21 @@ async def add_repository_to_monitoring(
             is_active=True,
             webhook_url=webhook_url,
             webhook_secret=webhook_secret,
-            webhook_id=webhook_result["id"]
+            webhook_id=webhook_result["id"] if webhook_result["id"] != "existing" else None
         )
         
         db.add(repository)
         db.commit()
         db.refresh(repository)
         
+        webhook_message = "Repository added to monitoring with webhook"
+        if webhook_result.get("id") == "existing":
+            webhook_message = "Repository added to monitoring (webhook already existed)"
+        
         return {
-            "message": "Repository added to monitoring with webhook", 
+            "message": webhook_message, 
             "repository_id": repository.id, 
-            "webhook_id": webhook_result["id"],
+            "webhook_id": webhook_result["id"] if webhook_result["id"] != "existing" else "existing",
             "webhook_url": webhook_url
         }
             

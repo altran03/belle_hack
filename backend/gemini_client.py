@@ -19,10 +19,39 @@ class GeminiClient:
                 "temperature": 0.1,  # Lower temperature for more consistent JSON
                 "top_p": 0.8,
                 "top_k": 40,
-                "max_output_tokens": 8192,  # Increased token limit
-                "response_mime_type": "application/json"  # Request JSON format
+                "max_output_tokens": 4096  # Reduced token limit to prevent truncation
             }
     
+    async def generate_tests(self, repo_path: str) -> Dict[str, Any]:
+        """
+        Generate test files for the repository using Gemini
+        """
+        if self.mock_mode:
+            return await self._mock_test_generation(repo_path)
+        
+        try:
+            # Build context for test generation
+            context = self._build_test_generation_context(repo_path)
+            
+            # Generate prompt for test creation
+            prompt = self._build_test_generation_prompt(context)
+            
+            # Get response from Gemini
+            response = self.model.generate_content(
+                prompt,
+                generation_config=self.generation_config
+            )
+            
+            # Parse and save generated tests
+            return self._parse_and_save_tests(response.text, repo_path)
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to generate tests: {str(e)}",
+                "test_files": []
+            }
+
     async def analyze_code_and_generate_patch(self, 
                                             repo_path: str,
                                             commit_sha: str,
@@ -134,34 +163,51 @@ class GeminiClient:
         try:
             import re
             
+            # Log the response for debugging
+            print(f"Gemini response length: {len(response_text)} characters")
+            print(f"First 200 chars: {response_text[:200]}")
+            print(f"Last 200 chars: {response_text[-200:]}")
+            
             # First try to extract JSON from markdown code blocks
             json_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
             if json_block_match:
                 json_str = json_block_match.group(1)
-                return json.loads(json_str)
+                print(f"Found JSON in code block, length: {len(json_str)}")
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    print(f"JSON block parsing failed: {e}")
+                    # Try to fix the JSON
+                    fixed_json = self._fix_truncated_json(json_str)
+                    return json.loads(fixed_json)
             
             # Try to parse as direct JSON (no markdown)
             try:
                 return json.loads(response_text.strip())
-            except:
-                pass
+            except json.JSONDecodeError as e:
+                print(f"Direct JSON parsing failed: {e}")
             
             # If no code blocks, try to find JSON object directly
             json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             if json_match:
                 json_str = json_match.group()
+                print(f"Found JSON object, length: {len(json_str)}")
                 # Try to fix common truncation issues
                 json_str = self._fix_truncated_json(json_str)
-                return json.loads(json_str)
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    print(f"Fixed JSON parsing failed: {e}")
             
             # If still no JSON found, try to parse the entire response as JSON
             try:
                 fixed_response = self._fix_truncated_json(response_text.strip())
                 return json.loads(fixed_response)
-            except:
-                pass
+            except json.JSONDecodeError as e:
+                print(f"Full response JSON parsing failed: {e}")
             
             # Fallback parsing
+            print("Using fallback parsing")
             return self._fallback_parse(response_text)
         except Exception as e:
             print(f"Error parsing Gemini response: {e}")
@@ -175,6 +221,9 @@ class GeminiClient:
             json.loads(json_str)
             return json_str
         except json.JSONDecodeError as e:
+            print(f"JSON decode error: {e}")
+            print(f"Error position: line {e.lineno}, column {e.colno}")
+            
             # Try to fix common truncation patterns
             fixed_json = json_str
             
@@ -204,14 +253,18 @@ class GeminiClient:
             # Try to parse the fixed JSON
             try:
                 json.loads(fixed_json)
+                print("Successfully fixed truncated JSON")
                 return fixed_json
-            except:
+            except json.JSONDecodeError as e2:
+                print(f"Fixed JSON still invalid: {e2}")
                 # If still invalid, try to extract partial data
                 return self._extract_partial_json(json_str)
     
     def _extract_partial_json(self, json_str: str) -> str:
         """Extract partial JSON data when full parsing fails"""
         import re
+        
+        print("Attempting to extract partial JSON data...")
         
         # Try to extract what we can from the response
         issue_summary = "Analysis completed with partial results"
@@ -222,11 +275,14 @@ class GeminiClient:
         summary_match = re.search(r'"issue_summary":\s*"([^"]*)"', json_str)
         if summary_match:
             issue_summary = summary_match.group(1)
+            print(f"Found issue summary: {issue_summary}")
         
         # Look for bugs detected - try multiple patterns
         bugs_match = re.search(r'"bugs_detected":\s*\[(.*?)\]', json_str, re.DOTALL)
         if bugs_match:
             bugs_content = bugs_match.group(1)
+            print(f"Found bugs content, length: {len(bugs_content)}")
+            
             # Try to extract individual bug objects with more flexible patterns
             # Pattern 1: Full bug objects
             bug_matches = re.findall(r'\{[^}]*"type":\s*"([^"]*)"[^}]*"severity":\s*"([^"]*)"[^}]*"file":\s*"([^"]*)"[^}]*"line":\s*(\d+)[^}]*"description":\s*"([^"]*)"', bugs_content)
@@ -245,6 +301,7 @@ class GeminiClient:
             if not bug_matches:
                 # Look for individual bug entries
                 bug_entries = re.findall(r'\{[^}]*\}', bugs_content)
+                print(f"Found {len(bug_entries)} bug entries")
                 for entry in bug_entries:
                     type_match = re.search(r'"type":\s*"([^"]*)"', entry)
                     severity_match = re.search(r'"severity":\s*"([^"]*)"', entry)
@@ -323,6 +380,190 @@ class GeminiClient:
             "deployable_status": deployable_status,
             "confidence_score": 0.3
         })
+    
+    def _build_test_generation_context(self, repo_path: str) -> Dict[str, Any]:
+        """Build context for test generation"""
+        from pathlib import Path
+        
+        # Get Python files from the repository
+        python_files = list(Path(repo_path).rglob("*.py"))
+        
+        # Read key files for test generation
+        file_contents = {}
+        for py_file in python_files[:5]:  # Limit to 5 files to avoid token limits
+            try:
+                with open(py_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    # Truncate if too long
+                    if len(content) > 2000:
+                        content = content[:2000] + "\n... (truncated)"
+                    file_contents[str(py_file.relative_to(repo_path))] = content
+            except Exception as e:
+                file_contents[str(py_file.relative_to(repo_path))] = f"Error reading file: {e}"
+        
+        return {
+            "file_contents": file_contents,
+            "repo_structure": [str(f.relative_to(repo_path)) for f in python_files],
+            "total_files": len(python_files)
+        }
+    
+    def _build_test_generation_prompt(self, context: Dict[str, Any]) -> str:
+        """Build prompt for test generation"""
+        prompt = f"""
+You are an expert Python test generator. Generate comprehensive test files for the following Python code.
+
+REPOSITORY STRUCTURE:
+{context.get('repo_structure', [])}
+
+CODE FILES TO TEST:
+"""
+        
+        # Add file contents with line numbers
+        file_contents = context.get('file_contents', {})
+        for file_path, content in file_contents.items():
+            lines = content.split('\n')
+            numbered_content = '\n'.join(f"{i+1:4d}| {line}" for i, line in enumerate(lines))
+            prompt += f"\n--- {file_path} ---\n{numbered_content}\n"
+        
+        prompt += """
+
+TEST GENERATION REQUIREMENTS:
+1. **Comprehensive Coverage**: Create tests for all functions, classes, and methods
+2. **Edge Cases**: Include tests for edge cases, error conditions, and boundary values
+3. **Mocking**: Use unittest.mock for external dependencies
+4. **Fixtures**: Use pytest fixtures where appropriate
+5. **Assertions**: Include meaningful assertions that verify expected behavior
+6. **Documentation**: Add docstrings to test functions explaining what they test
+
+RESPONSE FORMAT (JSON only):
+{
+    "test_files": [
+        {
+            "file_path": "test_filename.py",
+            "content": "complete test file content with imports, classes, and test methods"
+        }
+    ],
+    "test_summary": "Brief summary of what tests were generated",
+    "coverage_areas": ["list of areas covered by tests"]
+}
+
+TEST FILE NAMING CONVENTIONS:
+- For main.py: test_main.py
+- For utils/helpers.py: test_helpers.py
+- For models/user.py: test_user.py
+- For api/handlers.py: test_handlers.py
+
+Generate comprehensive, well-structured test files that will help identify bugs and ensure code quality.
+"""
+        
+        return prompt
+    
+    def _parse_and_save_tests(self, response_text: str, repo_path: str) -> Dict[str, Any]:
+        """Parse Gemini response and save test files"""
+        try:
+            import re
+            import os
+            
+            # Try to extract JSON from the response
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if not json_match:
+                return {
+                    "success": False,
+                    "error": "No JSON found in response",
+                    "test_files": []
+                }
+            
+            json_str = json_match.group()
+            try:
+                result = json.loads(json_str)
+            except json.JSONDecodeError:
+                # Try to fix common JSON issues
+                json_str = self._fix_truncated_json(json_str)
+                result = json.loads(json_str)
+            
+            # Save test files
+            test_files = []
+            for test_file in result.get("test_files", []):
+                file_path = test_file.get("file_path")
+                content = test_file.get("content")
+                
+                if file_path and content:
+                    # Create test directory if it doesn't exist
+                    test_dir = os.path.join(repo_path, "tests")
+                    os.makedirs(test_dir, exist_ok=True)
+                    
+                    # Save test file
+                    full_path = os.path.join(test_dir, file_path)
+                    with open(full_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    
+                    test_files.append(full_path)
+            
+            return {
+                "success": True,
+                "test_files": test_files,
+                "test_summary": result.get("test_summary", "Tests generated successfully"),
+                "coverage_areas": result.get("coverage_areas", [])
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to parse and save tests: {str(e)}",
+                "test_files": []
+            }
+    
+    async def _mock_test_generation(self, repo_path: str) -> Dict[str, Any]:
+        """Mock test generation for development/testing"""
+        import asyncio
+        import os
+        
+        await asyncio.sleep(1)  # Simulate processing time
+        
+        # Create a simple mock test file
+        test_dir = os.path.join(repo_path, "tests")
+        os.makedirs(test_dir, exist_ok=True)
+        
+        test_content = '''import unittest
+from unittest.mock import patch, MagicMock
+
+class TestMain(unittest.TestCase):
+    """Test cases for main functionality."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        pass
+    
+    def test_basic_functionality(self):
+        """Test basic functionality works."""
+        # Mock test - replace with actual tests based on your code
+        self.assertTrue(True)
+    
+    def test_error_handling(self):
+        """Test error handling."""
+        with self.assertRaises(ValueError):
+            raise ValueError("Test error")
+    
+    @patch('builtins.print')
+    def test_print_functionality(self, mock_print):
+        """Test print functionality with mock."""
+        print("test message")
+        mock_print.assert_called_once_with("test message")
+
+if __name__ == '__main__':
+    unittest.main()
+'''
+        
+        test_file_path = os.path.join(test_dir, "test_main.py")
+        with open(test_file_path, 'w', encoding='utf-8') as f:
+            f.write(test_content)
+        
+        return {
+            "success": True,
+            "test_files": [test_file_path],
+            "test_summary": "Mock test file generated for development",
+            "coverage_areas": ["basic functionality", "error handling", "print functionality"]
+        }
     
     def _normalize_response_format(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize the response format to ensure consistency"""

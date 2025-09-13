@@ -201,7 +201,7 @@ export default function JobDetails() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg shadow">
               <div className="p-6">
-                <h2 className="text-lg font-semibold mb-4 text-black">Pytest Results</h2>
+                <h2 className="text-lg font-semibold mb-4 text-black">Test Results</h2>
                 {job.pytest_result ? (
                   <div className="space-y-4">
                     {/* Check if pytest requires manual configuration */}
