@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import Link from 'next/link'
-import { BugAntIcon, CheckCircleIcon, ExclamationTriangleIcon, ClockIcon } from '@heroicons/react/24/outline'
+import { BugAntIcon, CheckCircleIcon, ExclamationTriangleIcon, ClockIcon, TrashIcon } from '@heroicons/react/24/outline'
 
 export default function Dashboard() {
   const router = useRouter()
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
+  const [clearing, setClearing] = useState(false)
 
   useEffect(() => {
     const userId = localStorage.getItem('user_id')
@@ -35,6 +36,37 @@ export default function Dashboard() {
   const handleLogout = () => {
     localStorage.removeItem('user_id')
     router.push('/auth/login')
+  }
+
+  const handleClearHistory = async () => {
+    const userId = localStorage.getItem('user_id')
+    if (!userId) return
+
+    if (!confirm('Are you sure you want to clear all job history? This action cannot be undone.')) {
+      return
+    }
+
+    setClearing(true)
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs?user_id=${userId}`, {
+        method: 'DELETE',
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        alert(`✅ Successfully cleared ${result.deleted_count} jobs from history`)
+        // Refresh the jobs list
+        await fetchData(parseInt(userId))
+      } else {
+        const error = await response.json()
+        alert(`❌ Failed to clear job history: ${error.detail || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error clearing job history:', error)
+      alert('❌ Failed to clear job history. Please try again.')
+    } finally {
+      setClearing(false)
+    }
   }
 
   if (loading) {
@@ -66,6 +98,25 @@ export default function Dashboard() {
                 >
                   Connect Repositories
                 </button>
+                {jobs.length > 0 && (
+                  <button
+                    onClick={handleClearHistory}
+                    disabled={clearing}
+                    className="flex items-center bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {clearing ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Clearing...
+                      </>
+                    ) : (
+                      <>
+                        <TrashIcon className="h-4 w-4 mr-2" />
+                        Clear History
+                      </>
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={handleLogout}
                   className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
@@ -110,21 +161,25 @@ export default function Dashboard() {
               ) : (
                 <div className="space-y-4">
                   {jobs.slice(0, 5).map((job: any) => (
-                    <div key={job.id} className="border rounded-lg p-4">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-medium">{job.commit_sha.substring(0, 8)}</p>
-                          <p className="text-sm text-gray-500">{job.commit_message}</p>
+                    <Link key={job.id} href={`/jobs/${job.id}`} className="block">
+                      <div className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-colors">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-medium">{job.commit_sha.substring(0, 8)}</p>
+                            <p className="text-sm text-gray-500">{job.commit_message}</p>
+                          </div>
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            job.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            job.status === 'failed' ? 'bg-red-100 text-red-800' :
+                            job.status === 'ready_for_review' ? 'bg-blue-100 text-blue-800' :
+                            job.status === 'approved' ? 'bg-purple-100 text-purple-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {job.status.replace('_', ' ').toUpperCase()}
+                          </span>
                         </div>
-                        <span className={`px-2 py-1 rounded-full text-xs ${
-                          job.status === 'completed' ? 'bg-green-100 text-green-800' :
-                          job.status === 'failed' ? 'bg-red-100 text-red-800' :
-                          'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {job.status}
-                        </span>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}

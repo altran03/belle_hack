@@ -11,7 +11,7 @@ class GeminiClient:
         
         if not self.mock_mode and self.api_key:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
     
     async def analyze_code_and_generate_patch(self, 
                                             repo_path: str,

@@ -51,6 +51,8 @@ class TestSpriteResult(BaseModel):
     diagnostics: List[str]
     error_details: Optional[str] = None
     execution_time: float
+    requires_manual_config: Optional[bool] = False
+    static_analysis_fallback: Optional['TestSpriteResult'] = None
 
 class GeminiAnalysis(BaseModel):
     issue_summary: str

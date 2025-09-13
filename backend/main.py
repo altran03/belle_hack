@@ -1,5 +1,6 @@
 import os
 import uuid
+import json
 from typing import List, Optional
 from datetime import datetime
 from dotenv import load_dotenv
@@ -10,6 +11,9 @@ load_dotenv()
 from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from collections import defaultdict
+from time import time
 from sqlalchemy.orm import Session
 import httpx
 import json
@@ -38,6 +42,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security middleware - only allow requests from trusted hosts
+app.add_middleware(
+    TrustedHostMiddleware, 
+    allowed_hosts=["localhost", "127.0.0.1", "*.ngrok.io", "*.ngrok-free.app"]
+)
+
+# Simple rate limiting for webhook endpoint
+webhook_requests = defaultdict(list)
+
+@app.middleware("http")
+async def rate_limit_webhook(request: Request, call_next):
+    """Rate limit webhook endpoint to prevent abuse"""
+    if request.url.path == "/api/webhooks/github":
+        client_ip = request.client.host
+        current_time = time()
+        
+        # Clean old requests (older than 1 minute)
+        webhook_requests[client_ip] = [
+            req_time for req_time in webhook_requests[client_ip] 
+            if current_time - req_time < 60
+        ]
+        
+        # Check if rate limit exceeded (max 10 requests per minute)
+        if len(webhook_requests[client_ip]) >= 10:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        
+        # Add current request
+        webhook_requests[client_ip].append(current_time)
+    
+    response = await call_next(request)
+    return response
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -117,7 +153,7 @@ async def github_callback(code: str, state: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="GitHub OAuth not configured")
     
     # Exchange code for access token
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         response = await client.post(
             "https://github.com/login/oauth/access_token",
             data={
@@ -255,7 +291,93 @@ async def get_job(job_id: str, db: Session = Depends(get_db)):
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    
+    # Convert database fields to API schema format
+    from models.schemas import TestSpriteResult, GeminiAnalysis, Commit, DeployableStatus
+    import json
+    
+    # Build TestSprite result if data exists
+    testsprite_result = None
+    if job.testsprite_total_tests is not None:
+        diagnostics = []
+        if job.testsprite_diagnostics:
+            try:
+                diagnostics = json.loads(job.testsprite_diagnostics) if job.testsprite_diagnostics.startswith('[') else [job.testsprite_diagnostics]
+            except:
+                diagnostics = [job.testsprite_diagnostics] if job.testsprite_diagnostics else []
+        
+        # Check if this is the initial configuration state
+        requires_manual_config = (
+            job.testsprite_error_details and 
+            job.testsprite_error_details.startswith('/') and  # Workspace path
+            job.testsprite_total_tests == 0 and
+            job.testsprite_failed_tests == 0
+        )
+        
+        testsprite_result = TestSpriteResult(
+            passed=job.testsprite_passed or False,
+            total_tests=job.testsprite_total_tests,
+            failed_tests=job.testsprite_failed_tests or 0,
+            diagnostics=diagnostics,
+            error_details=job.testsprite_error_details if not requires_manual_config else "Interactive configuration required",
+            execution_time=job.testsprite_execution_time or 0.0,
+            requires_manual_config=requires_manual_config
+        )
+    
+    # Build Gemini analysis if data exists
+    gemini_analysis = None
+    if job.gemini_issue_summary:
+        bugs_detected = []
+        optimizations = []
+        
+        if job.gemini_bugs_detected:
+            try:
+                bugs_detected = json.loads(job.gemini_bugs_detected)
+            except:
+                bugs_detected = [job.gemini_bugs_detected] if job.gemini_bugs_detected else []
+        
+        if job.gemini_optimizations:
+            try:
+                optimizations = json.loads(job.gemini_optimizations)
+            except:
+                optimizations = [job.gemini_optimizations] if job.gemini_optimizations else []
+        
+        gemini_analysis = GeminiAnalysis(
+            issue_summary=job.gemini_issue_summary,
+            bugs_detected=bugs_detected,
+            optimizations=optimizations,
+            patch=job.gemini_patch or "",
+            deployable_status=DeployableStatus(job.gemini_deployable_status) if job.gemini_deployable_status else DeployableStatus.UNKNOWN,
+            confidence_score=job.gemini_confidence_score or 0.0
+        )
+    
+    # Build commit info if data exists
+    commit = None
+    if job.commit_message:
+        commit = Commit(
+            sha=job.commit_sha,
+            message=job.commit_message,
+            author=job.commit_author or "",
+            author_email=job.commit_author_email or "",
+            timestamp=job.commit_timestamp or datetime.utcnow(),
+            url=job.commit_url or ""
+        )
+    
+    # Return structured response
+    return JobSchema(
+        id=job.id,
+        repository_id=job.repository_id,
+        commit_sha=job.commit_sha,
+        status=job.status,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        commit=commit,
+        testsprite_result=testsprite_result,
+        gemini_analysis=gemini_analysis,
+        branch_name=job.branch_name,
+        pr_url=job.pr_url,
+        pr_number=job.pr_number
+    )
 
 @app.post("/api/jobs/{job_id}/approve")
 async def approve_job(job_id: str, db: Session = Depends(get_db)):
@@ -268,11 +390,60 @@ async def approve_job(job_id: str, db: Session = Depends(get_db)):
     else:
         raise HTTPException(status_code=500, detail=result["error"])
 
+
+
+@app.post("/api/jobs/{job_id}/run-testsprite")
+async def run_testsprite_after_config(job_id: str, db: Session = Depends(get_db)):
+    """Run full analysis pipeline after TestSprite configuration"""
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Run the full analysis pipeline
+    pipeline = AnalysisPipeline()
+    
+    try:
+        await pipeline.run_full_analysis(job_id, db)
+        
+        return {
+            "message": "Full analysis completed",
+            "status": "completed"
+        }
+        
+    except Exception as e:
+        return {
+            "message": f"Analysis failed: {str(e)}",
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+@app.delete("/api/jobs")
+async def clear_job_history(user_id: int, db: Session = Depends(get_db)):
+    """Clear all job history for a user"""
+    # Verify user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Delete all jobs for the user
+    deleted_count = db.query(Job).filter(Job.user_id == user_id).delete()
+    db.commit()
+    
+    return {"message": f"Cleared {deleted_count} jobs from history", "deleted_count": deleted_count}
+
 # Webhook endpoint
 @app.post("/api/webhooks/github")
 async def github_webhook(request: Request):
     """Handle GitHub webhook"""
     return await webhook_handler.handle_push_webhook(request)
+
+# Block GET requests to webhook endpoint
+@app.get("/api/webhooks/github")
+async def webhook_get_block(request: Request):
+    """Block GET requests to webhook endpoint"""
+    print(f"🚨 SECURITY ALERT: GET request blocked from {request.client.host} to webhook endpoint")
+    raise HTTPException(status_code=405, detail="Method not allowed")
 
 # WebSocket endpoint for real-time updates
 @app.websocket("/ws/{user_id}")

@@ -22,7 +22,7 @@ class GitHubOperations:
         """Download commit zipball and return path to extracted directory"""
         url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{commit_sha}"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             
@@ -51,7 +51,7 @@ class GitHubOperations:
         """Get detailed commit information"""
         url = f"https://api.github.com/repos/{owner}/{repo}/commits/{commit_sha}"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
@@ -60,7 +60,7 @@ class GitHubOperations:
         """Get repository information"""
         url = f"https://api.github.com/repos/{owner}/{repo}"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
@@ -79,7 +79,7 @@ class GitHubOperations:
             "sha": base_sha
         }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.post(url, headers=self.headers, json=data)
             return response.status_code == 201
     
@@ -141,7 +141,7 @@ class GitHubOperations:
             "base": base_branch
         }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.post(url, headers=self.headers, json=data)
             
             if response.status_code == 201:
@@ -166,7 +166,7 @@ class GitHubOperations:
             }
         }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.post(url, headers=self.headers, json=data)
             
             if response.status_code == 201:
@@ -179,7 +179,7 @@ class GitHubOperations:
         """Get user's repositories"""
         url = f"https://api.github.com/users/{username}/repos"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
@@ -188,7 +188,7 @@ class GitHubOperations:
         """Get authenticated user information"""
         url = "https://api.github.com/user"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
