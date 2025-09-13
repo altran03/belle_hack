@@ -175,14 +175,41 @@ class GitHubOperations:
                 print(f"Failed to create webhook: {response.status_code} - {response.text}")
                 return None
     
-    async def get_user_repositories(self, username: str) -> List[Dict[str, Any]]:
-        """Get user's repositories"""
-        url = f"https://api.github.com/users/{username}/repos"
+    async def get_user_repositories(self, username: str = None) -> List[Dict[str, Any]]:
+        """Get user's repositories (authenticated user's repos)"""
+        # Use the authenticated user endpoint instead of public user endpoint
+        url = "https://api.github.com/user/repos"
+        
+        # Add query parameters for better results
+        params = {
+            "type": "all",  # Get all repos (public, private, forks)
+            "sort": "updated",
+            "per_page": 100
+        }
         
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            response = await client.get(url, headers=self.headers)
+            response = await client.get(url, headers=self.headers, params=params)
+            
+            if response.status_code == 401:
+                raise Exception("Invalid or expired access token")
+            elif response.status_code == 403:
+                raise Exception("Access token lacks required permissions")
+            
             response.raise_for_status()
             return response.json()
+    
+    async def delete_webhook(self, owner: str, repo: str, webhook_id: int) -> bool:
+        """Delete a webhook from the repository"""
+        url = f"https://api.github.com/repos/{owner}/{repo}/hooks/{webhook_id}"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(url, headers=self.headers)
+            
+            if response.status_code == 204:
+                return True
+            else:
+                print(f"Failed to delete webhook: {response.status_code} - {response.text}")
+                return False
     
     async def get_user_info(self) -> Dict[str, Any]:
         """Get authenticated user information"""

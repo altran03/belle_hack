@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import Head from 'next/head'
 import Link from 'next/link'
 import { BugAntIcon, CheckCircleIcon, ExclamationTriangleIcon, ClockIcon, TrashIcon } from '@heroicons/react/24/outline'
+import Navigation from '../components/Navigation'
 
 export default function Dashboard() {
   const router = useRouter()
@@ -33,10 +34,6 @@ export default function Dashboard() {
     }
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('user_id')
-    router.push('/auth/login')
-  }
 
   const handleClearHistory = async () => {
     const userId = localStorage.getItem('user_id')
@@ -84,55 +81,42 @@ export default function Dashboard() {
       </Head>
 
       <div className="min-h-screen bg-gray-50">
-        <header className="bg-white shadow-sm">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center">
-                <BugAntIcon className="h-8 w-8 text-blue-600" />
-                <h1 className="ml-2 text-xl font-bold">BugSniper Pro</h1>
-              </div>
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={() => router.push('/repositories')}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                >
-                  Connect Repositories
-                </button>
-                {jobs.length > 0 && (
-                  <button
-                    onClick={handleClearHistory}
-                    disabled={clearing}
-                    className="flex items-center bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {clearing ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Clearing...
-                      </>
-                    ) : (
-                      <>
-                        <TrashIcon className="h-4 w-4 mr-2" />
-                        Clear History
-                      </>
-                    )}
-                  </button>
+        <Navigation />
+        
+        {/* Clear History Button - positioned below navigation */}
+        {jobs.length > 0 && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div className="flex justify-end">
+              <button
+                onClick={handleClearHistory}
+                disabled={clearing}
+                className="flex items-center bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {clearing ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Clearing...
+                  </>
+                ) : (
+                  <>
+                    <TrashIcon className="h-4 w-4 mr-2" />
+                    Clear History
+                  </>
                 )}
-                <button
-                  onClick={handleLogout}
-                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
-                >
-                  Logout
-                </button>
-              </div>
+              </button>
             </div>
           </div>
-        </header>
+        )}
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <div className="bg-white rounded-lg shadow p-6">
               <div className="flex items-center">
-                <BugAntIcon className="h-8 w-8 text-blue-600" />
+                <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
+                  <svg className="h-5 w-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
                 <div className="ml-4">
                   <p className="text-sm text-gray-500">Total Jobs</p>
                   <p className="text-2xl font-semibold">{jobs.length}</p>
@@ -146,7 +130,11 @@ export default function Dashboard() {
               <h2 className="text-lg font-semibold mb-4">Recent Jobs</h2>
               {jobs.length === 0 ? (
                 <div className="text-center py-12">
-                  <BugAntIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <div className="h-12 w-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
                   <h3 className="text-lg font-medium mb-2">No jobs yet</h3>
                   <p className="text-gray-500 mb-4">
                     Connect your GitHub repositories to start monitoring.

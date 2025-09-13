@@ -297,143 +297,150 @@ export default function JobDetails() {
                       <div>
                         <h3 className="font-medium mb-3 text-black">Bugs Detected ({job.gemini_analysis.bugs_detected.length}):</h3>
                         
-                        {/* Group bugs by severity */}
-                        {(() => {
-                          const bugsBySeverity = job.gemini_analysis.bugs_detected.reduce((acc: any, bug: any) => {
-                            if (typeof bug === 'string') {
-                              if (!acc['other']) acc['other'] = [];
-                              acc['other'].push(bug);
-                            } else {
-                              const severity = bug.severity || 'unknown';
-                              if (!acc[severity]) acc[severity] = [];
-                              acc[severity].push(bug);
-                            }
-                            return acc;
-                          }, {});
+                        {/* Scrollable container for bugs */}
+                        <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-4 bg-gray-50">
+                          {/* Group bugs by severity */}
+                          {(() => {
+                            const bugsBySeverity = job.gemini_analysis.bugs_detected.reduce((acc: any, bug: any) => {
+                              if (typeof bug === 'string') {
+                                if (!acc['other']) acc['other'] = [];
+                                acc['other'].push(bug);
+                              } else {
+                                const severity = bug.severity || 'unknown';
+                                if (!acc[severity]) acc[severity] = [];
+                                acc[severity].push(bug);
+                              }
+                              return acc;
+                            }, {});
 
-                          const severityOrder = ['critical', 'high', 'medium', 'low', 'other'];
-                          const severityLabels = {
-                            'critical': '🔴 Critical Issues',
-                            'high': '🟠 High Severity',
-                            'medium': '🟡 Medium Severity', 
-                            'low': '🟢 Low Severity',
-                            'other': '📝 Other Issues'
-                          };
+                            const severityOrder = ['critical', 'high', 'medium', 'low', 'other'];
+                            const severityLabels = {
+                              'critical': '🔴 Critical Issues',
+                              'high': '🟠 High Severity',
+                              'medium': '🟡 Medium Severity', 
+                              'low': '🟢 Low Severity',
+                              'other': '📝 Other Issues'
+                            };
 
-                          return severityOrder.map(severity => {
-                            if (!bugsBySeverity[severity] || bugsBySeverity[severity].length === 0) return null;
-                            
-                            return (
-                              <div key={severity} className="mb-4">
-                                <h4 className="font-medium text-sm mb-2 text-gray-700">
-                                  {severityLabels[severity as keyof typeof severityLabels]} ({bugsBySeverity[severity].length})
-                                </h4>
-                                <div className="space-y-2 ml-4">
-                                  {bugsBySeverity[severity].map((bug: any, index: number) => {
-                                    if (typeof bug === 'string') {
-                                      return (
-                                        <div key={index} className="flex items-start space-x-2 text-sm">
-                                          <span className="text-gray-500 font-bold">•</span>
-                                          <span className="text-black">{bug}</span>
-                                        </div>
-                                      );
-                                    } else {
-                                      const severityColors = {
-                                        'critical': 'border-red-200 bg-red-50',
-                                        'high': 'border-orange-200 bg-orange-50',
-                                        'medium': 'border-yellow-200 bg-yellow-50',
-                                        'low': 'border-blue-200 bg-blue-50'
-                                      };
-                                      const severityColor = severityColors[bug.severity as keyof typeof severityColors] || 'border-gray-200 bg-gray-50';
-                                      
-                                      return (
-                                        <div key={index} className={`border rounded-lg p-3 ${severityColor}`}>
-                                          <div className="flex items-center space-x-2 text-sm mb-1">
-                                            <span className="font-semibold text-gray-800">
-                                              {bug.type?.replace('_', ' ').toUpperCase()}
-                                            </span>
-                                            {bug.file && bug.file !== 'unknown' && (
-                                              <>
-                                                <span className="text-gray-400">•</span>
-                                                <span className="text-gray-600 font-mono text-xs">
-                                                  {bug.file}:{bug.line}
-                                                </span>
-                                              </>
+                            return severityOrder.map(severity => {
+                              if (!bugsBySeverity[severity] || bugsBySeverity[severity].length === 0) return null;
+                              
+                              return (
+                                <div key={severity} className="mb-4">
+                                  <h4 className="font-medium text-sm mb-2 text-gray-700">
+                                    {severityLabels[severity as keyof typeof severityLabels]} ({bugsBySeverity[severity].length})
+                                  </h4>
+                                  <div className="space-y-2 ml-4">
+                                    {bugsBySeverity[severity].map((bug: any, index: number) => {
+                                      if (typeof bug === 'string') {
+                                        return (
+                                          <div key={index} className="flex items-start space-x-2 text-sm">
+                                            <span className="text-gray-500 font-bold">•</span>
+                                            <span className="text-black">{bug}</span>
+                                          </div>
+                                        );
+                                      } else {
+                                        const severityColors = {
+                                          'critical': 'border-red-200 bg-red-50',
+                                          'high': 'border-orange-200 bg-orange-50',
+                                          'medium': 'border-yellow-200 bg-yellow-50',
+                                          'low': 'border-blue-200 bg-blue-50'
+                                        };
+                                        const severityColor = severityColors[bug.severity as keyof typeof severityColors] || 'border-gray-200 bg-gray-50';
+                                        
+                                        return (
+                                          <div key={index} className={`border rounded-lg p-3 ${severityColor}`}>
+                                            <div className="flex items-center space-x-2 text-sm mb-1">
+                                              <span className="font-semibold text-gray-800">
+                                                {bug.type?.replace('_', ' ').toUpperCase()}
+                                              </span>
+                                              {bug.file && bug.file !== 'unknown' && (
+                                                <>
+                                                  <span className="text-gray-400">•</span>
+                                                  <span className="text-gray-600 font-mono text-xs">
+                                                    {bug.file}:{bug.line}
+                                                  </span>
+                                                </>
+                                              )}
+                                            </div>
+                                            <div className="text-sm text-gray-800 mb-1">
+                                              {bug.description}
+                                            </div>
+                                            {bug.impact && (
+                                              <div className="text-xs text-gray-600">
+                                                <strong>Impact:</strong> {bug.impact}
+                                              </div>
+                                            )}
+                                            {bug.reproduction && (
+                                              <div className="text-xs text-gray-600 mt-1">
+                                                <strong>Reproduction:</strong> {bug.reproduction}
+                                              </div>
                                             )}
                                           </div>
-                                          <div className="text-sm text-gray-800 mb-1">
-                                            {bug.description}
-                                          </div>
-                                          {bug.impact && (
-                                            <div className="text-xs text-gray-600">
-                                              <strong>Impact:</strong> {bug.impact}
-                                            </div>
-                                          )}
-                                          {bug.reproduction && (
-                                            <div className="text-xs text-gray-600 mt-1">
-                                              <strong>Reproduction:</strong> {bug.reproduction}
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    }
-                                  })}
+                                        );
+                                      }
+                                    })}
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          });
-                        })()}
+                              );
+                            });
+                          })()}
+                        </div>
                       </div>
                     )}
 
                     {job.gemini_analysis.optimizations && job.gemini_analysis.optimizations.length > 0 && (
                       <div>
                         <h3 className="font-medium mb-3 text-black">Optimizations ({job.gemini_analysis.optimizations.length}):</h3>
-                        <div className="space-y-3">
-                          {job.gemini_analysis.optimizations.map((opt: any, index: number) => {
-                            // Handle both old string format and new object format
-                            if (typeof opt === 'string') {
-                              return (
-                                <div key={index} className="flex items-start space-x-2 text-sm">
-                                  <span className="text-green-500 font-bold">•</span>
-                                  <span className="text-black">{opt}</span>
-                                </div>
-                              );
-                            } else {
-                              return (
-                                <div key={index} className="border border-green-200 bg-green-50 rounded-lg p-3">
-                                  <div className="flex items-center space-x-2 text-sm mb-2">
-                                    <span className="text-green-600 font-semibold">
-                                      {opt.type?.replace('_', ' ').toUpperCase()}
-                                    </span>
-                                    {opt.file && opt.file !== 'unknown' && (
-                                      <>
-                                        <span className="text-gray-400">•</span>
-                                        <span className="text-gray-600 font-mono text-xs">
-                                          {opt.file}:{opt.line}
-                                        </span>
-                                      </>
-                                    )}
+                        
+                        {/* Scrollable container for optimizations */}
+                        <div className="max-h-80 overflow-y-auto border border-gray-200 rounded-lg p-4 bg-gray-50">
+                          <div className="space-y-3">
+                            {job.gemini_analysis.optimizations.map((opt: any, index: number) => {
+                              // Handle both old string format and new object format
+                              if (typeof opt === 'string') {
+                                return (
+                                  <div key={index} className="flex items-start space-x-2 text-sm">
+                                    <span className="text-green-500 font-bold">•</span>
+                                    <span className="text-black">{opt}</span>
                                   </div>
-                                  <div className="text-sm text-gray-800">
-                                    <div className="font-medium mb-1">
-                                      💡 {opt.suggested_approach}
+                                );
+                              } else {
+                                return (
+                                  <div key={index} className="border border-green-200 bg-green-50 rounded-lg p-3">
+                                    <div className="flex items-center space-x-2 text-sm mb-2">
+                                      <span className="text-green-600 font-semibold">
+                                        {opt.type?.replace('_', ' ').toUpperCase()}
+                                      </span>
+                                      {opt.file && opt.file !== 'unknown' && (
+                                        <>
+                                          <span className="text-gray-400">•</span>
+                                          <span className="text-gray-600 font-mono text-xs">
+                                            {opt.file}:{opt.line}
+                                          </span>
+                                        </>
+                                      )}
                                     </div>
-                                    {opt.current_approach && (
-                                      <div className="text-xs text-gray-600 mb-1">
-                                        <strong>Current:</strong> {opt.current_approach}
+                                    <div className="text-sm text-gray-800">
+                                      <div className="font-medium mb-1">
+                                        💡 {opt.suggested_approach}
                                       </div>
-                                    )}
-                                    {opt.benefit && (
-                                      <div className="text-xs text-green-700">
-                                        <strong>Benefit:</strong> {opt.benefit}
-                                      </div>
-                                    )}
+                                      {opt.current_approach && (
+                                        <div className="text-xs text-gray-600 mb-1">
+                                          <strong>Current:</strong> {opt.current_approach}
+                                        </div>
+                                      )}
+                                      {opt.benefit && (
+                                        <div className="text-xs text-green-700">
+                                          <strong>Benefit:</strong> {opt.benefit}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              );
-                            }
-                          })}
+                                );
+                              }
+                            })}
+                          </div>
                         </div>
                       </div>
                     )}
