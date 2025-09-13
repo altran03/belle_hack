@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from enum import Enum
 
@@ -51,13 +51,28 @@ class TestSpriteResult(BaseModel):
     diagnostics: List[str]
     error_details: Optional[str] = None
     execution_time: float
-    requires_manual_config: Optional[bool] = False
-    static_analysis_fallback: Optional['TestSpriteResult'] = None
+
+class BugDetected(BaseModel):
+    type: str
+    severity: str
+    file: str
+    line: int
+    description: str
+    impact: str
+    reproduction: str
+
+class Optimization(BaseModel):
+    type: str
+    file: str
+    line: int
+    current_approach: str
+    suggested_approach: str
+    benefit: str
 
 class GeminiAnalysis(BaseModel):
     issue_summary: str
-    bugs_detected: List[str]
-    optimizations: List[str]
+    bugs_detected: List[Union[BugDetected, str]]  # Support both object and string formats
+    optimizations: List[Union[Optimization, str]]  # Support both object and string formats
     patch: str
     deployable_status: DeployableStatus
     confidence_score: float

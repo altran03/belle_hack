@@ -29,78 +29,47 @@ class TestSpriteClient:
             return await self._mock_test_results(repo_path)
         
         if not self.api_key:
+            print("TestSprite API key not configured, trying pytest fallback...")
+            pytest_result = await self._run_pytest_fallback(repo_path)
+            if pytest_result:
+                return pytest_result
+            
             return {
                 "passed": False,
                 "total_tests": 0,
                 "failed_tests": 1,
-                "diagnostics": ["TestSprite API key not configured"],
-                "error_details": "No API key provided",
+                "diagnostics": ["TestSprite API key not configured and pytest fallback failed"],
+                "error_details": "No API key provided and pytest not available",
                 "execution_time": 0.0
             }
         
-        # Always return manual configuration option for now
-        # User can click to configure TestSprite when they want comprehensive testing
-        print("TestSprite analysis initiated - manual configuration available")
-        return {
-            "passed": False,
-            "total_tests": 0,
-            "failed_tests": 0,
-            "diagnostics": ["TestSprite analysis ready. Click 'Configure TestSprite' to run comprehensive testing."],
-            "error_details": None,
-            "execution_time": 0.0,
-            "requires_manual_config": True,
-            "static_analysis_fallback": await self._run_static_analysis(repo_path)
-        }
-    
-    async def run_testsprite_after_config(self, repo_path: str) -> Dict[str, Any]:
-        """
-        Run TestSprite tests automatically - no manual configuration needed
-        This method runs the full TestSprite MCP workflow automatically
-        """
-        if self.mock_mode:
-            return await self._mock_test_results(repo_path)
-
-        if not self.api_key:
+        try:
+            # Use MCP server to run TestSprite analysis
+            result = await self._run_testsprite_mcp_analysis(repo_path)
+            return result
+            
+        except Exception as e:
+            # TestSprite MCP failed - try pytest fallback first, then static analysis
+            print(f"TestSprite MCP failed: {e}")
+            print("Falling back to pytest for testing...")
+            
+            # Try pytest fallback first
+            pytest_result = await self._run_pytest_fallback(repo_path)
+            if pytest_result:
+                return pytest_result
+            
+            # If pytest also fails, return static analysis
+            print("Pytest fallback also failed, using static analysis")
             return {
                 "passed": False,
                 "total_tests": 0,
                 "failed_tests": 1,
-                "diagnostics": ["TestSprite API key not configured"],
-                "error_details": "No API key provided",
-                "execution_time": 0.0
+                "diagnostics": ["TestSprite requires manual configuration. Click 'Configure TestSprite' to set up comprehensive testing."],
+                "error_details": "Interactive configuration required",
+                "execution_time": 0.0,
+                "requires_manual_config": True,
+                "static_analysis_fallback": await self._run_static_analysis(repo_path)
             }
-
-        try:
-            print(f"Running automated TestSprite analysis on {repo_path}")
-            
-            # Step 1: Try to run bootstrap tests first
-            try:
-                bootstrap_result = await self._run_bootstrap_tests(repo_path)
-                print(f"Bootstrap result: {bootstrap_result}")
-            except Exception as e:
-                print(f"Bootstrap failed, continuing with other tools: {e}")
-            
-            # Step 2: Generate test plan
-            try:
-                plan_result = await self._run_generate_plan(repo_path)
-                print(f"Plan result: {plan_result}")
-            except Exception as e:
-                print(f"Plan generation failed, continuing: {e}")
-            
-            # Step 3: Generate and execute tests (this is the main one)
-            try:
-                execute_result = await self._run_generate_execute(repo_path)
-                print(f"Execute result: {execute_result}")
-                return execute_result
-            except Exception as e:
-                print(f"Execute failed: {e}")
-                # Fall back to static analysis
-                return await self._run_static_analysis(repo_path)
-
-        except Exception as e:
-            print(f"TestSprite automated analysis failed: {e}")
-            # Fall back to static analysis
-            return await self._run_static_analysis(repo_path)
     
     async def _mock_test_results(self, repo_path: str) -> Dict[str, Any]:
         """
@@ -235,157 +204,6 @@ class TestSpriteClient:
             import shutil
             shutil.rmtree(temp_repo, ignore_errors=True)
     
-    async def _run_bootstrap_tests(self, repo_path: str) -> Dict[str, Any]:
-        """Run TestSprite bootstrap tests using MCP server"""
-        try:
-            print(f"Running TestSprite bootstrap tests via MCP for {repo_path}")
-            
-            # Set up MCP server parameters
-            env_vars = {}
-            if self.api_key:
-                env_vars["API_KEY"] = self.api_key
-                env_vars["TESTSPRITE_API_KEY"] = self.api_key
-            
-            env_vars.update({
-                "NODE_ENV": "production",
-                "TESTSPRITE_ENVIRONMENT": "production"
-            })
-            
-            server_params = StdioServerParameters(
-                command=self.mcp_command,
-                args=self.mcp_args,
-                env=env_vars
-            )
-            
-            # Connect to MCP server
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    # Initialize the session
-                    await session.initialize()
-                    
-                    # Call bootstrap_tests tool
-                    result = await session.call_tool(
-                        "testsprite_bootstrap_tests",
-                        {
-                            "projectPath": repo_path,
-                            "type": "backend",
-                            "testScope": "codebase"
-                        }
-                    )
-                    
-                    return self._parse_mcp_response(result, repo_path)
-                    
-        except Exception as e:
-            print(f"TestSprite bootstrap failed: {e}")
-            return {
-                "passed": False,
-                "total_tests": 0,
-                "failed_tests": 1,
-                "diagnostics": [f"Bootstrap failed: {str(e)}"],
-                "error_details": str(e),
-                "execution_time": 0.0
-            }
-
-    async def _run_generate_plan(self, repo_path: str) -> Dict[str, Any]:
-        """Run TestSprite generate test plan using MCP server"""
-        try:
-            print(f"Running TestSprite generate test plan via MCP for {repo_path}")
-            
-            # Set up MCP server parameters
-            env_vars = {}
-            if self.api_key:
-                env_vars["API_KEY"] = self.api_key
-                env_vars["TESTSPRITE_API_KEY"] = self.api_key
-            
-            env_vars.update({
-                "NODE_ENV": "production",
-                "TESTSPRITE_ENVIRONMENT": "production"
-            })
-            
-            server_params = StdioServerParameters(
-                command=self.mcp_command,
-                args=self.mcp_args,
-                env=env_vars
-            )
-            
-            # Connect to MCP server
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    # Initialize the session
-                    await session.initialize()
-                    
-                    # Call generate_backend_test_plan tool
-                    result = await session.call_tool(
-                        "testsprite_generate_backend_test_plan",
-                        {
-                            "projectPath": repo_path
-                        }
-                    )
-                    
-                    return self._parse_mcp_response(result, repo_path)
-                    
-        except Exception as e:
-            print(f"TestSprite generate plan failed: {e}")
-            return {
-                "passed": False,
-                "total_tests": 0,
-                "failed_tests": 1,
-                "diagnostics": [f"Test plan generation failed: {str(e)}"],
-                "error_details": str(e),
-                "execution_time": 0.0
-            }
-
-    async def _run_generate_execute(self, repo_path: str) -> Dict[str, Any]:
-        """Run TestSprite generate and execute tests using MCP server"""
-        try:
-            print(f"Running TestSprite generate and execute tests via MCP for {repo_path}")
-            
-            # Set up MCP server parameters
-            env_vars = {}
-            if self.api_key:
-                env_vars["API_KEY"] = self.api_key
-                env_vars["TESTSPRITE_API_KEY"] = self.api_key
-            
-            env_vars.update({
-                "NODE_ENV": "production",
-                "TESTSPRITE_ENVIRONMENT": "production"
-            })
-            
-            server_params = StdioServerParameters(
-                command=self.mcp_command,
-                args=self.mcp_args,
-                env=env_vars
-            )
-            
-            # Connect to MCP server
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    # Initialize the session
-                    await session.initialize()
-                    
-                    # Call generate_code_and_execute tool
-                    result = await session.call_tool(
-                        "testsprite_generate_code_and_execute",
-                        {
-                            "projectName": os.path.basename(repo_path),
-                            "projectPath": repo_path,
-                            "testIds": []  # Empty array means all tests
-                        }
-                    )
-                    
-                    return self._parse_mcp_response(result, repo_path)
-                    
-        except Exception as e:
-            print(f"TestSprite generate execute failed: {e}")
-            return {
-                "passed": False,
-                "total_tests": 0,
-                "failed_tests": 1,
-                "diagnostics": [f"Test execution failed: {str(e)}"],
-                "error_details": str(e),
-                "execution_time": 0.0
-            }
-
     async def _run_testsprite_mcp_analysis(self, repo_path: str) -> Dict[str, Any]:
         """Run TestSprite analysis using MCP server"""
         try:
@@ -485,12 +303,7 @@ class TestSpriteClient:
                         # Bootstrap tests - this will open configuration portal
                         # We'll handle this by falling back to static analysis
                         print("Bootstrap tests requires manual configuration, falling back to static analysis")
-                        static_result = await self._run_static_analysis(repo_path)
-                        # Add the manual configuration flag and preserve static analysis results
-                        static_result["requires_manual_config"] = True
-                        static_result["static_analysis_fallback"] = static_result.copy()
-                        static_result["diagnostics"] = ["TestSprite requires manual configuration. Click 'Configure TestSprite' to set up comprehensive testing."]
-                        return static_result
+                        return await self._run_static_analysis(repo_path)
                     else:
                         # Generic approach for other tools
                         result = await session.call_tool(
@@ -508,6 +321,214 @@ class TestSpriteClient:
         except Exception as e:
             raise Exception(f"TestSprite MCP analysis failed: {str(e)}")
     
+    async def _run_pytest_fallback(self, repo_path: str) -> Optional[Dict[str, Any]]:
+        """
+        Fallback to pytest when TestSprite fails
+        Attempts to run pytest on the repository
+        """
+        try:
+            import subprocess
+            import time
+            
+            print(f"Running pytest fallback on {repo_path}")
+            
+            # Check if pytest is available
+            try:
+                subprocess.run(["pytest", "--version"], 
+                             capture_output=True, check=True, timeout=10)
+            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                print("Pytest not available, skipping pytest fallback")
+                return None
+            
+            # Look for existing test files
+            test_files = []
+            for root, dirs, files in os.walk(repo_path):
+                for file in files:
+                    if (file.startswith('test_') or file.endswith('_test.py') or 
+                        'test' in file.lower() and file.endswith('.py')):
+                        test_files.append(os.path.join(root, file))
+            
+            # If no test files found, try to run pytest on the main files to check for syntax errors
+            if not test_files:
+                print("No test files found, running pytest on Python files for syntax checking")
+                python_files = list(Path(repo_path).rglob("*.py"))
+                if not python_files:
+                    print("No Python files found")
+                    return None
+                
+                # Run pytest with --collect-only to check for syntax errors
+                start_time = time.time()
+                result = subprocess.run(
+                    ["pytest", "--collect-only", "-q", str(repo_path)],
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                execution_time = time.time() - start_time
+                
+                # Parse the output
+                diagnostics = []
+                total_tests = 0
+                failed_tests = 0
+                
+                if result.returncode == 0:
+                    # Success - count collected tests
+                    lines = result.stdout.split('\n')
+                    for line in lines:
+                        if 'test session starts' in line.lower():
+                            continue
+                        elif 'collected' in line.lower() and 'item' in line.lower():
+                            # Extract number of collected tests
+                            import re
+                            numbers = re.findall(r'\d+', line)
+                            if numbers:
+                                total_tests = int(numbers[0])
+                        elif 'error' in line.lower() or 'failed' in line.lower():
+                            diagnostics.append(line.strip())
+                            failed_tests += 1
+                    
+                    return {
+                        "passed": failed_tests == 0,
+                        "total_tests": max(total_tests, 1),
+                        "failed_tests": failed_tests,
+                        "diagnostics": diagnostics if diagnostics else ["Pytest syntax check passed"],
+                        "error_details": None if failed_tests == 0 else "Syntax errors found",
+                        "execution_time": execution_time,
+                        "test_method": "pytest_syntax_check"
+                    }
+                else:
+                    # Pytest found issues
+                    diagnostics = result.stderr.split('\n') if result.stderr else result.stdout.split('\n')
+                    diagnostics = [d.strip() for d in diagnostics if d.strip()]
+                    
+                    return {
+                        "passed": False,
+                        "total_tests": 1,
+                        "failed_tests": 1,
+                        "diagnostics": diagnostics[:10],  # Limit to first 10 errors
+                        "error_details": "Pytest found syntax or import errors",
+                        "execution_time": execution_time,
+                        "test_method": "pytest_syntax_check"
+                    }
+            
+            else:
+                # Run actual tests
+                print(f"Found {len(test_files)} test files, running pytest")
+                start_time = time.time()
+                
+                result = subprocess.run(
+                    ["pytest", "-v", "--tb=short", str(repo_path)],
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=120  # 2 minute timeout for actual tests
+                )
+                execution_time = time.time() - start_time
+                
+                # Parse pytest output
+                return self._parse_pytest_output(result, execution_time)
+                
+        except subprocess.TimeoutExpired:
+            print("Pytest fallback timed out")
+            return {
+                "passed": False,
+                "total_tests": 0,
+                "failed_tests": 1,
+                "diagnostics": ["Pytest fallback timed out after 2 minutes"],
+                "error_details": "Pytest execution timeout",
+                "execution_time": 120.0,
+                "test_method": "pytest_timeout"
+            }
+        except Exception as e:
+            print(f"Pytest fallback failed: {e}")
+            return None
+    
+    def _parse_pytest_output(self, result: subprocess.CompletedProcess, execution_time: float) -> Dict[str, Any]:
+        """Parse pytest output into our expected format"""
+        try:
+            diagnostics = []
+            total_tests = 0
+            failed_tests = 0
+            
+            # Parse stdout for test results
+            lines = result.stdout.split('\n')
+            for line in lines:
+                if '::' in line and ('PASSED' in line or 'FAILED' in line or 'ERROR' in line):
+                    total_tests += 1
+                    if 'FAILED' in line or 'ERROR' in line:
+                        failed_tests += 1
+                        diagnostics.append(line.strip())
+                elif 'failed' in line.lower() and 'passed' in line.lower():
+                    # Summary line like "1 failed, 2 passed in 0.5s"
+                    import re
+                    numbers = re.findall(r'\d+', line)
+                    if len(numbers) >= 2:
+                        failed_tests = int(numbers[0])
+                        passed_tests = int(numbers[1])
+                        total_tests = failed_tests + passed_tests
+            
+            # If no tests found in stdout, check stderr
+            if total_tests == 0 and result.stderr:
+                stderr_lines = result.stderr.split('\n')
+                for line in stderr_lines:
+                    if 'error' in line.lower() or 'failed' in line.lower():
+                        diagnostics.append(line.strip())
+                        failed_tests += 1
+                        total_tests += 1
+            
+            # If still no tests found, check return code
+            if total_tests == 0:
+                if result.returncode == 0:
+                    return {
+                        "passed": True,
+                        "total_tests": 1,
+                        "failed_tests": 0,
+                        "diagnostics": ["Pytest completed successfully"],
+                        "error_details": None,
+                        "execution_time": execution_time,
+                        "test_method": "pytest"
+                    }
+                else:
+                    # Try to extract more information from stderr
+                    error_details = result.stderr or result.stdout or "Unknown pytest error"
+                    diagnostics = []
+                    if result.stderr:
+                        diagnostics.extend([line.strip() for line in result.stderr.split('\n') if line.strip()][:5])
+                    if result.stdout:
+                        diagnostics.extend([line.strip() for line in result.stdout.split('\n') if line.strip()][:5])
+                    
+                    return {
+                        "passed": False,
+                        "total_tests": 1,
+                        "failed_tests": 1,
+                        "diagnostics": diagnostics if diagnostics else ["Pytest failed to run tests"],
+                        "error_details": error_details,
+                        "execution_time": execution_time,
+                        "test_method": "pytest"
+                    }
+            
+            return {
+                "passed": failed_tests == 0,
+                "total_tests": total_tests,
+                "failed_tests": failed_tests,
+                "diagnostics": diagnostics[:10],  # Limit to first 10 failures
+                "error_details": None if failed_tests == 0 else f"Pytest found {failed_tests} test failures",
+                "execution_time": execution_time,
+                "test_method": "pytest"
+            }
+            
+        except Exception as e:
+            return {
+                "passed": False,
+                "total_tests": 0,
+                "failed_tests": 1,
+                "diagnostics": [f"Error parsing pytest output: {str(e)}"],
+                "error_details": str(e),
+                "execution_time": execution_time,
+                "test_method": "pytest_parse_error"
+            }
+
     async def _run_static_analysis(self, repo_path: str) -> Dict[str, Any]:
         """Fallback static analysis when TestSprite MCP fails"""
         try:
@@ -662,7 +683,7 @@ class TestSpriteClient:
                                 cwd=repo_path,
                                 capture_output=True,
                                 text=True,
-                                timeout=60  # 1 minute timeout
+                                timeout=300  # 5 minute timeout
                             )
                             
                             if result.returncode == 0:
@@ -705,7 +726,7 @@ class TestSpriteClient:
                 "failed_tests": 1,
                 "diagnostics": ["TestSprite command timed out after 5 minutes"],
                 "error_details": "Command execution timeout",
-                "execution_time": 60.0
+                "execution_time": 300.0
             }
         except Exception as e:
             return {

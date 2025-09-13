@@ -1,6 +1,5 @@
 import os
 import uuid
-import json
 from typing import List, Optional
 from datetime import datetime
 from dotenv import load_dotenv
@@ -306,22 +305,13 @@ async def get_job(job_id: str, db: Session = Depends(get_db)):
             except:
                 diagnostics = [job.testsprite_diagnostics] if job.testsprite_diagnostics else []
         
-        # Check if this is the initial configuration state
-        requires_manual_config = (
-            job.testsprite_error_details and 
-            job.testsprite_error_details.startswith('/') and  # Workspace path
-            job.testsprite_total_tests == 0 and
-            job.testsprite_failed_tests == 0
-        )
-        
         testsprite_result = TestSpriteResult(
             passed=job.testsprite_passed or False,
             total_tests=job.testsprite_total_tests,
             failed_tests=job.testsprite_failed_tests or 0,
             diagnostics=diagnostics,
-            error_details=job.testsprite_error_details if not requires_manual_config else "Interactive configuration required",
-            execution_time=job.testsprite_execution_time or 0.0,
-            requires_manual_config=requires_manual_config
+            error_details=job.testsprite_error_details,
+            execution_time=job.testsprite_execution_time or 0.0
         )
     
     # Build Gemini analysis if data exists
@@ -390,33 +380,25 @@ async def approve_job(job_id: str, db: Session = Depends(get_db)):
     else:
         raise HTTPException(status_code=500, detail=result["error"])
 
-
-
-@app.post("/api/jobs/{job_id}/run-testsprite")
-async def run_testsprite_after_config(job_id: str, db: Session = Depends(get_db)):
-    """Run full analysis pipeline after TestSprite configuration"""
+@app.post("/api/jobs/{job_id}/configure-testsprite")
+async def configure_testsprite(job_id: str, db: Session = Depends(get_db)):
+    """Trigger TestSprite configuration for a job"""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # Run the full analysis pipeline
-    pipeline = AnalysisPipeline()
+    # Get repository path
+    repo = db.query(Repository).filter(Repository.id == job.repository_id).first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
     
-    try:
-        await pipeline.run_full_analysis(job_id, db)
-        
-        return {
-            "message": "Full analysis completed",
-            "status": "completed"
-        }
-        
-    except Exception as e:
-        return {
-            "message": f"Analysis failed: {str(e)}",
-            "status": "failed",
-            "error": str(e)
-        }
-
+    # For now, return the configuration URL
+    # In a real implementation, this would trigger the TestSprite MCP server
+    return {
+        "message": "TestSprite configuration initiated",
+        "config_url": f"https://testsprite.com/configure?job_id={job_id}&repo={repo.name}",
+        "status": "configuration_required"
+    }
 
 @app.delete("/api/jobs")
 async def clear_job_history(user_id: int, db: Session = Depends(get_db)):
