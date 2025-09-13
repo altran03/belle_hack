@@ -4,10 +4,24 @@ import Head from 'next/head'
 import Link from 'next/link'
 import { ArrowLeftIcon, BugAntIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
 
+interface Job {
+  id: string
+  commit_sha: string
+  commit_message?: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  testsprite_total_tests?: number
+  testsprite_passed?: boolean
+  testsprite_failed_tests?: number
+  testsprite_diagnostics?: string
+  gemini_issue_summary?: string
+  gemini_bugs_detected?: string
+  gemini_patch?: string
+}
+
 export default function JobDetails() {
   const router = useRouter()
   const { id } = router.query
-  const [job, setJob] = useState(null)
+  const [job, setJob] = useState<Job | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -146,9 +160,16 @@ export default function JobDetails() {
                       <div>
                         <h3 className="font-medium mb-2">Bugs Detected:</h3>
                         <ul className="list-disc list-inside text-sm text-gray-700">
-                          {JSON.parse(job.gemini_bugs_detected).map((bug: string, index: number) => (
-                            <li key={index}>{bug}</li>
-                          ))}
+                          {(() => {
+                            try {
+                              const bugs = JSON.parse(job.gemini_bugs_detected)
+                              return Array.isArray(bugs) ? bugs.map((bug: string, index: number) => (
+                                <li key={index}>{bug}</li>
+                              )) : <li>{job.gemini_bugs_detected}</li>
+                            } catch {
+                              return <li>{job.gemini_bugs_detected}</li>
+                            }
+                          })()}
                         </ul>
                       </div>
                     )}

@@ -183,9 +183,8 @@ Generate a clean, minimal patch that fixes the most critical issues.
 +++ b/sample.py
 @@ -1,5 +1,7 @@
  def hello_world():
--    print("Hello, World!")
 +    \"\"\"Print a greeting message.\"\"\"
-+    print("Hello, World!")
+     print("Hello, World!")
 +    return "Hello, World!"
  
  def main():
