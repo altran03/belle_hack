@@ -219,3 +219,23 @@ class GitHubOperations:
             response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
+    
+    async def check_repository_permissions(self, owner: str, repo: str) -> Dict[str, Any]:
+        """Check if user has admin permissions on the repository"""
+        url = f"https://api.github.com/repos/{owner}/{repo}"
+        
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.get(url, headers=self.headers)
+            
+            if response.status_code == 404:
+                raise Exception(f"Repository {owner}/{repo} not found or you don't have access")
+            
+            response.raise_for_status()
+            repo_data = response.json()
+            
+            # Check permissions
+            permissions = repo_data.get("permissions", {})
+            if not permissions.get("admin", False):
+                raise Exception(f"You don't have admin permissions on {owner}/{repo}. Admin permissions are required to set up webhooks.")
+            
+            return repo_data

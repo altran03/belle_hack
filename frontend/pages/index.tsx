@@ -22,7 +22,9 @@ export default function Dashboard() {
 
   const fetchData = async (userId: number) => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs?user_id=${userId}`)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs?user_id=${userId}`, {
+        credentials: 'include'
+      })
       if (response.ok) {
         const data = await response.json()
         setJobs(data)
@@ -47,6 +49,7 @@ export default function Dashboard() {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs?user_id=${userId}`, {
         method: 'DELETE',
+        credentials: 'include'
       })
       
       if (response.ok) {

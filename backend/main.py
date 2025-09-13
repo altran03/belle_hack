@@ -16,15 +16,35 @@ from time import time
 from sqlalchemy.orm import Session
 import httpx
 import json
+import secrets
+from typing import Optional
 
 from models.database import get_db, create_tables, User, Repository, Job
 from models.schemas import (
     JobStatus, JobCreate, JobUpdate, GitHubOAuthResponse, 
-    Repository as RepoSchema, Job as JobSchema
+    Repository as RepoSchema, Job as JobSchema, MonitorRepositoryRequest
 )
 from webhook_handler import WebhookHandler
 from pipeline import AnalysisPipeline
 from github_ops import GitHubOperations
+
+# Authentication function
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+    """Get current authenticated user from session"""
+    # Get session ID from cookies
+    session_id = request.cookies.get("session_id")
+    
+    if not session_id or session_id not in active_sessions:
+        raise HTTPException(status_code=401, detail="No valid session found. Please authenticate with GitHub.")
+    
+    # Get user from session
+    user_id = active_sessions[session_id]
+    user = db.query(User).filter(User.id == user_id).first()
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Session invalid. Please authenticate with GitHub.")
+    
+    return user
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -111,6 +131,9 @@ GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_CALLBACK_URL = os.getenv("GITHUB_CALLBACK_URL", "http://localhost:8000/api/auth/github/callback")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "your-secret-key")
 
+# Simple in-memory session storage (in production, use Redis or database)
+active_sessions = {}  # session_id -> user_id
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application"""
@@ -126,6 +149,18 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow()}
+
+# User info endpoint
+@app.get("/api/user")
+def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current user information"""
+    return {
+        "id": current_user.id,
+        "login": current_user.login,
+        "name": current_user.name,
+        "email": current_user.email,
+        "avatar_url": current_user.avatar_url
+    }
 
 # GitHub OAuth endpoints
 @app.get("/api/auth/github")
@@ -196,56 +231,164 @@ async def github_callback(code: str, state: str, db: Session = Depends(get_db)):
         db.add(user)
     
     db.commit()
+    db.refresh(user)
     
-    # Redirect to frontend with success
-    return RedirectResponse(url=f"http://localhost:3000/auth/success?user_id={user.id}")
+    # Create session
+    session_id = secrets.token_urlsafe(32)
+    active_sessions[session_id] = user.id
+    
+    # Redirect to frontend with success and set session cookie
+    response = RedirectResponse(url=f"http://localhost:3000/auth/success?user_id={user.id}")
+    response.set_cookie(
+        key="session_id",
+        value=session_id,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        max_age=86400  # 24 hours
+    )
+    
+    return response
+
+# Logout endpoint
+@app.post("/api/auth/logout")
+async def logout(request: Request):
+    """Logout user and clear session"""
+    session_id = request.cookies.get("session_id")
+    if session_id and session_id in active_sessions:
+        del active_sessions[session_id]
+    
+    response = RedirectResponse(url="http://localhost:3000/")
+    response.delete_cookie(key="session_id")
+    return response
 
 # Repository management endpoints
-@app.get("/api/repositories", response_model=List[RepoSchema])
-async def get_repositories(user_id: int, db: Session = Depends(get_db)):
-    """Get user's repositories"""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    if not user.access_token:
-        raise HTTPException(status_code=400, detail="No access token found")
-    
-    github_ops = GitHubOperations(user.access_token)
-    repos_data = await github_ops.get_user_repositories(user.login)
-    
-    repositories = []
-    for repo_data in repos_data:
-        # Check if repository is already in database
-        repo = db.query(Repository).filter(Repository.github_id == repo_data["id"]).first()
+@app.get("/api/repositories")
+async def get_repositories(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Get user's monitored repositories"""
+    try:
+        # Get monitored repositories from database
+        repositories = db.query(Repository).filter(
+            Repository.owner_id == current_user.id,
+            Repository.is_active == True
+        ).all()
         
-        if not repo:
-            repo = Repository(
-                github_id=repo_data["id"],
-                name=repo_data["name"],
-                full_name=repo_data["full_name"],
-                owner_id=user.id,
-                default_branch=repo_data.get("default_branch", "main"),
-                clone_url=repo_data["clone_url"]
-            )
-            db.add(repo)
-            db.commit()
+        # Convert to dict format for JSON response
+        result = []
+        for repo in repositories:
+            result.append({
+                "id": repo.id,
+                "github_id": repo.github_id,
+                "name": repo.name,
+                "full_name": repo.full_name,
+                "owner_id": repo.owner_id,
+                "default_branch": repo.default_branch,
+                "clone_url": repo.clone_url,
+                "webhook_url": repo.webhook_url,
+                "webhook_secret": repo.webhook_secret,
+                "webhook_id": repo.webhook_id,
+                "is_active": repo.is_active,
+                "created_at": repo.created_at.isoformat() if repo.created_at else None,
+                "updated_at": repo.updated_at.isoformat() if repo.updated_at else None
+            })
         
-        # Convert to response format
-        repo_response = {
-            "id": repo.id,
-            "github_id": repo.github_id,
-            "name": repo.name,
-            "full_name": repo.full_name,
-            "owner": user.login,  # Use the user's login as owner string
-            "default_branch": repo.default_branch,
-            "clone_url": repo.clone_url,
-            "webhook_url": repo.webhook_url,
-            "is_active": repo.is_active
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in get_repositories: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.post("/api/repositories/monitor")
+async def add_repository_to_monitoring(
+    request: MonitorRepositoryRequest,
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    """Add a repository to monitoring"""
+    try:
+        owner = request.owner
+        repo = request.repo
+        
+        # Check if repository already exists
+        full_name = f"{owner}/{repo}"
+        existing_repo = db.query(Repository).filter(
+            Repository.full_name == full_name,
+            Repository.owner_id == current_user.id
+        ).first()
+        
+        if existing_repo:
+            if existing_repo.is_active:
+                return {"message": "Repository is already being monitored", "repository_id": existing_repo.id}
+            else:
+                # Reactivate existing repository
+                existing_repo.is_active = True
+                db.commit()
+                return {"message": "Repository monitoring reactivated", "repository_id": existing_repo.id}
+        
+        # Check repository permissions and get info from GitHub
+        github_ops = GitHubOperations(current_user.access_token)
+        
+        try:
+            # Check if user has admin permissions (required for webhooks)
+            repo_info = await github_ops.check_repository_permissions(owner, repo)
+        except Exception as e:
+            raise HTTPException(status_code=403, detail=str(e))
+        
+        # Set up webhook first (before creating database entry)
+        webhook_url = f"{os.getenv('WEBHOOK_BASE_URL', 'https://a1663eee09f5.ngrok-free.app')}/api/webhooks/github"
+        webhook_secret = os.getenv("GITHUB_WEBHOOK_SECRET", "your-webhook-secret")
+        
+        webhook_result = await github_ops.setup_webhook(owner, repo, webhook_url, webhook_secret)
+        
+        if not webhook_result:
+            raise HTTPException(status_code=500, detail="Failed to set up webhook. Please check your WEBHOOK_BASE_URL and try again.")
+        
+        # Create new repository entry with webhook info
+        repository = Repository(
+            github_id=repo_info["id"],
+            name=repo_info["name"],
+            full_name=full_name,
+            owner_id=current_user.id,
+            default_branch=repo_info.get("default_branch", "main"),
+            clone_url=repo_info.get("clone_url"),
+            is_active=True,
+            webhook_url=webhook_url,
+            webhook_secret=webhook_secret,
+            webhook_id=webhook_result["id"]
+        )
+        
+        db.add(repository)
+        db.commit()
+        db.refresh(repository)
+        
+        return {
+            "message": "Repository added to monitoring with webhook", 
+            "repository_id": repository.id, 
+            "webhook_id": webhook_result["id"],
+            "webhook_url": webhook_url
         }
-        repositories.append(repo_response)
-    
-    return repositories
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add repository to monitoring: {str(e)}")
+
+# GitHub repositories endpoint
+@app.get("/api/github/repositories")
+async def get_github_repositories(current_user: User = Depends(get_current_user)):
+    """Get user's GitHub repositories"""
+    try:
+        if not current_user.access_token:
+            raise HTTPException(status_code=401, detail="No GitHub access token found. Please authenticate with GitHub.")
+        
+        github_ops = GitHubOperations(current_user.access_token)
+        repos = await github_ops.get_user_repositories(current_user.login)
+        return repos
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch repositories: {str(e)}")
 
 @app.post("/api/repositories/{repo_id}/monitor")
 async def start_monitoring(repo_id: int, db: Session = Depends(get_db)):
@@ -277,6 +420,41 @@ async def start_monitoring(repo_id: int, db: Session = Depends(get_db)):
     else:
         raise HTTPException(status_code=500, detail="Failed to set up webhook")
 
+# Unmonitor repository endpoint
+@app.delete("/api/repositories/{repo_id}/unmonitor")
+async def unmonitor_repository(
+    repo_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Stop monitoring a repository"""
+    repository = db.query(Repository).filter(
+        Repository.id == repo_id,
+        Repository.owner_id == current_user.id
+    ).first()
+    
+    if not repository:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    
+    try:
+        # Remove webhook from GitHub
+        github_ops = GitHubOperations(current_user.access_token)
+        if repository.webhook_id:
+            await github_ops.delete_webhook(
+                repository.full_name.split('/')[0], 
+                repository.name, 
+                repository.webhook_id
+            )
+        
+        # Deactivate repository
+        repository.is_active = False
+        repository.webhook_id = None
+        db.commit()
+        
+        return {"message": "Repository monitoring stopped", "repository": repository.full_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to stop monitoring: {str(e)}")
+
 # Job management endpoints
 @app.get("/api/jobs", response_model=List[JobSchema])
 async def get_jobs(user_id: int, db: Session = Depends(get_db)):
@@ -292,26 +470,26 @@ async def get_job(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Job not found")
     
     # Convert database fields to API schema format
-    from models.schemas import TestSpriteResult, GeminiAnalysis, Commit, DeployableStatus
+    from models.schemas import PytestResult, GeminiAnalysis, Commit, DeployableStatus
     import json
     
-    # Build TestSprite result if data exists
-    testsprite_result = None
-    if job.testsprite_total_tests is not None:
+    # Build Pytest result if data exists
+    pytest_result = None
+    if job.pytest_total_tests is not None:
         diagnostics = []
-        if job.testsprite_diagnostics:
+        if job.pytest_diagnostics:
             try:
-                diagnostics = json.loads(job.testsprite_diagnostics) if job.testsprite_diagnostics.startswith('[') else [job.testsprite_diagnostics]
+                diagnostics = json.loads(job.pytest_diagnostics) if job.pytest_diagnostics.startswith('[') else [job.pytest_diagnostics]
             except:
-                diagnostics = [job.testsprite_diagnostics] if job.testsprite_diagnostics else []
+                diagnostics = [job.pytest_diagnostics] if job.pytest_diagnostics else []
         
-        testsprite_result = TestSpriteResult(
-            passed=job.testsprite_passed or False,
-            total_tests=job.testsprite_total_tests,
-            failed_tests=job.testsprite_failed_tests or 0,
+        pytest_result = PytestResult(
+            passed=job.pytest_passed or False,
+            total_tests=job.pytest_total_tests,
+            failed_tests=job.pytest_failed_tests or 0,
             diagnostics=diagnostics,
-            error_details=job.testsprite_error_details,
-            execution_time=job.testsprite_execution_time or 0.0
+            error_details=job.pytest_error_details,
+            execution_time=job.pytest_execution_time or 0.0
         )
     
     # Build Gemini analysis if data exists
@@ -362,7 +540,7 @@ async def get_job(job_id: str, db: Session = Depends(get_db)):
         created_at=job.created_at,
         updated_at=job.updated_at,
         commit=commit,
-        testsprite_result=testsprite_result,
+        pytest_result=pytest_result,
         gemini_analysis=gemini_analysis,
         branch_name=job.branch_name,
         pr_url=job.pr_url,
@@ -380,9 +558,9 @@ async def approve_job(job_id: str, db: Session = Depends(get_db)):
     else:
         raise HTTPException(status_code=500, detail=result["error"])
 
-@app.post("/api/jobs/{job_id}/configure-testsprite")
-async def configure_testsprite(job_id: str, db: Session = Depends(get_db)):
-    """Trigger TestSprite configuration for a job"""
+@app.post("/api/jobs/{job_id}/configure-pytest")
+async def configure_pytest(job_id: str, db: Session = Depends(get_db)):
+    """Trigger pytest configuration for a job"""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -392,12 +570,12 @@ async def configure_testsprite(job_id: str, db: Session = Depends(get_db)):
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    # For now, return the configuration URL
-    # In a real implementation, this would trigger the TestSprite MCP server
+    # For now, return a message about pytest setup
+    # In a real implementation, this could help set up pytest.ini or conftest.py
     return {
-        "message": "TestSprite configuration initiated",
-        "config_url": f"https://testsprite.com/configure?job_id={job_id}&repo={repo.name}",
-        "status": "configuration_required"
+        "message": "Pytest configuration initiated",
+        "config_url": f"https://docs.pytest.org/en/stable/getting-started.html?job_id={job_id}&repo={repo.name}",
+        "status": "configuration_available"
     }
 
 @app.delete("/api/jobs")

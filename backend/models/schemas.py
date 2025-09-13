@@ -44,7 +44,7 @@ class Commit(BaseModel):
     timestamp: datetime
     url: str
 
-class TestSpriteResult(BaseModel):
+class PytestResult(BaseModel):
     passed: bool
     total_tests: int
     failed_tests: int
@@ -85,9 +85,16 @@ class Job(BaseModel):
     created_at: datetime
     updated_at: datetime
     
+    # Commit details
+    commit_message: Optional[str] = None
+    commit_author: Optional[str] = None
+    commit_author_email: Optional[str] = None
+    commit_timestamp: Optional[datetime] = None
+    commit_url: Optional[str] = None
+    
     # Analysis results
     commit: Optional[Commit] = None
-    testsprite_result: Optional[TestSpriteResult] = None
+    pytest_result: Optional[PytestResult] = None
     gemini_analysis: Optional[GeminiAnalysis] = None
     
     # GitHub operations
@@ -101,7 +108,7 @@ class JobCreate(BaseModel):
 
 class JobUpdate(BaseModel):
     status: Optional[JobStatus] = None
-    testsprite_result: Optional[TestSpriteResult] = None
+    pytest_result: Optional[PytestResult] = None
     gemini_analysis: Optional[GeminiAnalysis] = None
     branch_name: Optional[str] = None
     pr_url: Optional[str] = None
@@ -125,3 +132,7 @@ class GitHubOAuthResponse(BaseModel):
     access_token: str
     token_type: str
     scope: str
+
+class MonitorRepositoryRequest(BaseModel):
+    owner: str
+    repo: str

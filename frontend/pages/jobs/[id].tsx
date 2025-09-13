@@ -4,7 +4,7 @@ import Head from 'next/head'
 import Link from 'next/link'
 import { ArrowLeftIcon, BugAntIcon, CheckCircleIcon, ClipboardDocumentCheckIcon } from '@heroicons/react/24/outline'
 
-interface TestSpriteResult {
+interface PytestResult {
   passed: boolean
   total_tests: number
   failed_tests: number
@@ -36,7 +36,7 @@ interface Job {
   commit_sha: string
   commit_message?: string
   status: 'pending' | 'running' | 'completed' | 'failed' | 'ready_for_review' | 'approved'
-  testsprite_result?: TestSpriteResult
+  pytest_result?: PytestResult
   gemini_analysis?: GeminiAnalysis
   commit?: Commit
   branch_name?: string
@@ -59,7 +59,9 @@ export default function JobDetails() {
 
   const fetchJob = async (jobId: string) => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs/${jobId}`)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs/${jobId}`, {
+        credentials: 'include'
+      })
       if (response.ok) {
         const data = await response.json()
         setJob(data)
@@ -81,6 +83,7 @@ export default function JobDetails() {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
       })
       
       if (response.ok) {
@@ -198,79 +201,80 @@ export default function JobDetails() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg shadow">
               <div className="p-6">
-                <h2 className="text-lg font-semibold mb-4 text-black">TestSprite Results</h2>
-                {job.testsprite_result ? (
+                <h2 className="text-lg font-semibold mb-4 text-black">Pytest Results</h2>
+                {job.pytest_result ? (
                   <div className="space-y-4">
-                    {/* Check if TestSprite requires manual configuration */}
-                    {(job.testsprite_result as any).requires_manual_config ? (
+                    {/* Check if pytest requires manual configuration */}
+                    {(job.pytest_result as any).requires_manual_config ? (
                       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                         <div className="flex items-center mb-3">
                           <span className="text-blue-600 text-lg mr-2">⚙️</span>
-                          <h3 className="font-medium text-blue-900">TestSprite Configuration Required</h3>
+                          <h3 className="font-medium text-blue-900">Pytest Configuration Required</h3>
                         </div>
                         <p className="text-blue-800 mb-4">
-                          TestSprite requires manual configuration to run comprehensive tests. 
-                          Click the button below to open the TestSprite configuration portal.
+                          Pytest requires manual configuration to run comprehensive tests. 
+                          Click the button below to open the pytest configuration guide.
                         </p>
                         <button 
                           onClick={async () => {
                             try {
-                              const response = await fetch(`/api/jobs/${job.id}/configure-testsprite`, {
+                              const response = await fetch(`/api/jobs/${job.id}/configure-pytest`, {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' }
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include'
                               });
                               const data = await response.json();
                               if (data.config_url) {
                                 window.open(data.config_url, '_blank');
                               }
                             } catch (error) {
-                              console.error('Failed to configure TestSprite:', error);
+                              console.error('Failed to configure pytest:', error);
                               // Fallback to direct URL
-                              window.open('https://testsprite.com/configure', '_blank');
+                              window.open('https://docs.pytest.org/en/stable/getting-started.html', '_blank');
                             }
                           }}
                           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium transition-colors"
                         >
-                          Configure TestSprite
+                          Configure Pytest
                         </button>
                         
                         {/* Show static analysis fallback */}
-                        {(job.testsprite_result as any).static_analysis_fallback && (
+                        {(job.pytest_result as any).static_analysis_fallback && (
                           <div className="mt-4 pt-4 border-t border-blue-200">
                             <h4 className="font-medium text-blue-900 mb-2">Quick Analysis (Static):</h4>
                             <div className="text-sm text-blue-800">
-                              <p>Found {(job.testsprite_result as any).static_analysis_fallback.failed_tests} issues in {(job.testsprite_result as any).static_analysis_fallback.total_tests} files</p>
-                              <p className="mt-1 text-xs">For comprehensive testing, please configure TestSprite above.</p>
+                              <p>Found {(job.pytest_result as any).static_analysis_fallback.failed_tests} issues in {(job.pytest_result as any).static_analysis_fallback.total_tests} files</p>
+                              <p className="mt-1 text-xs">For comprehensive testing, please configure pytest above.</p>
                             </div>
                           </div>
                         )}
                       </div>
                     ) : (
-                      /* Normal TestSprite results */
+                      /* Normal pytest results */
                       <div className="space-y-4">
                         <div className="flex items-center">
                           <span className={`text-lg font-medium ${
-                            job.testsprite_result.passed ? 'text-green-600' : 'text-red-600'
+                            job.pytest_result.passed ? 'text-green-600' : 'text-red-600'
                           }`}>
-                            {job.testsprite_result.passed ? '✅ PASSED' : '❌ FAILED'}
+                            {job.pytest_result.passed ? '✅ PASSED' : '❌ FAILED'}
                           </span>
                           <span className="ml-4 text-black">
-                            {job.testsprite_result.total_tests} tests, {job.testsprite_result.failed_tests} failed
+                            {job.pytest_result.total_tests} tests, {job.pytest_result.failed_tests} failed
                           </span>
                         </div>
-                        {job.testsprite_result.diagnostics && job.testsprite_result.diagnostics.length > 0 && (
+                        {job.pytest_result.diagnostics && job.pytest_result.diagnostics.length > 0 && (
                           <div>
                             <h3 className="font-medium mb-2 text-black">Diagnostics:</h3>
                             <div className="bg-gray-50 rounded p-3 text-sm">
-                              <pre className="whitespace-pre-wrap text-black">{job.testsprite_result.diagnostics.join('\n')}</pre>
+                              <pre className="whitespace-pre-wrap text-black">{job.pytest_result.diagnostics.join('\n')}</pre>
                             </div>
                           </div>
                         )}
-                        {job.testsprite_result.error_details && (
+                        {job.pytest_result.error_details && (
                           <div>
                             <h3 className="font-medium mb-2 text-black">Error Details:</h3>
                             <div className="bg-red-50 rounded p-3 text-sm text-red-700">
-                              {job.testsprite_result.error_details}
+                              {job.pytest_result.error_details}
                             </div>
                           </div>
                         )}

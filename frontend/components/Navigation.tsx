@@ -29,7 +29,9 @@ export default function Navigation({ className = '' }: NavigationProps) {
     // Fetch user info from API
     const fetchUser = async () => {
       try {
-        const response = await fetch('/api/user');
+        const response = await fetch('/api/user', {
+          credentials: 'include'
+        });
         if (response.ok) {
           const userData = await response.json();
           setUser(userData);

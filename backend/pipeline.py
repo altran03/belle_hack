@@ -10,14 +10,14 @@ from sqlalchemy.orm import Session
 from models.schemas import JobCreate, JobStatus, DeployableStatus
 from models.database import Job, Repository, User
 from github_ops import GitHubOperations
-from testsprite_client import TestSpriteClient
+from pytest_client import PytestClient
 from gemini_client import GeminiClient
 from utils.prompt_builders import PromptBuilder
 from utils.patch_applier import PatchApplier
 
 class AnalysisPipeline:
     def __init__(self):
-        self.testsprite_client = TestSpriteClient()
+        self.pytest_client = PytestClient()
         self.gemini_client = GeminiClient()
         self.prompt_builder = PromptBuilder()
         self.patch_applier = PatchApplier()
@@ -76,16 +76,16 @@ class AnalysisPipeline:
             job.status = JobStatus.TESTING
             db.commit()
             
-            # Run TestSprite analysis
-            testsprite_result = await self.testsprite_client.run_tests(temp_workspace)
+            # Run pytest analysis
+            pytest_result = await self.pytest_client.run_tests(temp_workspace)
             
-            # Update job with TestSprite results
-            job.testsprite_passed = testsprite_result["passed"]
-            job.testsprite_total_tests = testsprite_result["total_tests"]
-            job.testsprite_failed_tests = testsprite_result["failed_tests"]
-            job.testsprite_diagnostics = str(testsprite_result["diagnostics"])
-            job.testsprite_error_details = testsprite_result.get("error_details")
-            job.testsprite_execution_time = testsprite_result["execution_time"]
+            # Update job with pytest results
+            job.pytest_passed = pytest_result["passed"]
+            job.pytest_total_tests = pytest_result["total_tests"]
+            job.pytest_failed_tests = pytest_result["failed_tests"]
+            job.pytest_diagnostics = str(pytest_result["diagnostics"])
+            job.pytest_error_details = pytest_result.get("error_details")
+            job.pytest_execution_time = pytest_result["execution_time"]
             
             # Update status to fixing
             job.status = JobStatus.FIXING
@@ -96,7 +96,7 @@ class AnalysisPipeline:
                 temp_workspace,
                 job_data.commit_sha,
                 job.commit_message,
-                testsprite_result,
+                pytest_result,
                 job.commit_author
             )
             
@@ -110,15 +110,15 @@ class AnalysisPipeline:
             
             # Test the patch if one was generated
             if gemini_analysis["patch"]:
-                patch_test_result = await self.testsprite_client.run_tests_with_patch(
+                patch_test_result = await self.pytest_client.run_tests_with_patch(
                     temp_workspace, gemini_analysis["patch"]
                 )
                 
                 # Update diagnostics with patch test results
                 if patch_test_result["passed"]:
-                    job.testsprite_diagnostics += f"\nPatch validation: PASSED"
+                    job.pytest_diagnostics += f"\nPatch validation: PASSED"
                 else:
-                    job.testsprite_diagnostics += f"\nPatch validation: FAILED - {patch_test_result['diagnostics']}"
+                    job.pytest_diagnostics += f"\nPatch validation: FAILED - {patch_test_result['diagnostics']}"
             
             # Update status to ready for review
             job.status = JobStatus.READY_FOR_REVIEW
@@ -130,7 +130,7 @@ class AnalysisPipeline:
         except Exception as e:
             # Update job status to failed
             job.status = JobStatus.FAILED
-            job.testsprite_error_details = str(e)
+            job.pytest_error_details = str(e)
             job.updated_at = datetime.utcnow()
             db.commit()
             
@@ -198,9 +198,9 @@ class AnalysisPipeline:
 ### Optimizations
 {chr(10).join(f"- {opt}" for opt in eval(job.gemini_optimizations))}
 
-### TestSprite Results
-- **Status:** {'✅ PASSED' if job.testsprite_passed else '❌ FAILED'}
-- **Tests:** {job.testsprite_total_tests} total, {job.testsprite_failed_tests} failed
+### Pytest Results
+- **Status:** {'✅ PASSED' if job.pytest_passed else '❌ FAILED'}
+- **Tests:** {job.pytest_total_tests} total, {job.pytest_failed_tests} failed
 - **Confidence:** {job.gemini_confidence_score:.2f}
 
 ### Deployable Status
@@ -234,7 +234,7 @@ class AnalysisPipeline:
                 
         except Exception as e:
             job.status = JobStatus.FAILED
-            job.testsprite_error_details = str(e)
+            job.pytest_error_details = str(e)
             job.updated_at = datetime.utcnow()
             db.commit()
             

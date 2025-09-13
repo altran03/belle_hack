@@ -65,13 +65,13 @@ class Job(Base):
     commit_timestamp = Column(DateTime, nullable=True)
     commit_url = Column(String, nullable=True)
     
-    # TestSprite results
-    testsprite_passed = Column(Boolean, nullable=True)
-    testsprite_total_tests = Column(Integer, nullable=True)
-    testsprite_failed_tests = Column(Integer, nullable=True)
-    testsprite_diagnostics = Column(Text, nullable=True)  # JSON
-    testsprite_error_details = Column(Text, nullable=True)
-    testsprite_execution_time = Column(Float, nullable=True)
+    # Pytest results
+    pytest_passed = Column(Boolean, nullable=True)
+    pytest_total_tests = Column(Integer, nullable=True)
+    pytest_failed_tests = Column(Integer, nullable=True)
+    pytest_diagnostics = Column(Text, nullable=True)  # JSON
+    pytest_error_details = Column(Text, nullable=True)
+    pytest_execution_time = Column(Float, nullable=True)
     
     # Gemini analysis
     gemini_issue_summary = Column(Text, nullable=True)

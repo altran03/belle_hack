@@ -35,7 +35,7 @@ export default function LogStream({ jobId }: LogStreamProps) {
       {
         timestamp: new Date().toISOString(),
         level: 'info',
-        message: 'Running TestSprite analysis...'
+        message: 'Running pytest analysis...'
       },
       {
         timestamp: new Date().toISOString(),
